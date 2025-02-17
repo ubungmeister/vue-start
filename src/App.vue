@@ -9,52 +9,110 @@ export default {
   data() {
     return {
       wallet: "",
+      filter: "",
+
       wallets: [],
       selectedWallet: null,
+
       graph: [],
+
+      page: 1,
     };
   },
 
+  created() {
+    const wallets = localStorage.getItem("crypto-list");
+    if (wallets) {
+      this.wallets = JSON.parse(wallets);
+      this.wallets.forEach((wallet) => {
+        this.subscribeToUpdates(wallet.name);
+      });
+    }
+  },
+
+  computed: {
+    startIndex() {
+      return (this.page - 1) * 6;
+    },
+    endIndex() {
+      return this.page * 6;
+    },
+    filteredWallets() {
+      return this.wallets.filter((wallet) =>
+        wallet.name.toLowerCase().includes(this.filter.toLowerCase())
+      );
+    },
+    paginatedWallets() {
+      return this.filteredWallets.slice(this.startIndex, this.endIndex);
+    },
+    hasNextPage() {
+      return this.filteredWallets.length > this.endIndex;
+    },
+    normalizedGraph() {
+      if (!this.graph.length) return [];
+      const maxValue = Math.max(...this.graph);
+      const minValue = Math.min(...this.graph);
+      // Avoid division by zero when all values are equal
+      if (maxValue === minValue) {
+        return this.graph.map(() => 50);
+      }
+      return this.graph.map(
+        (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
+      );
+    },
+  },
+
   methods: {
+    subscribeToUpdates(walletName) {
+      setInterval(async () => {
+        const f = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${walletName}&tsyms=USD&api_key=c758af6ddf70d3190475f86acba2971949ff42e5f971648e0de573f5ce540857`
+        );
+        const data = await f.json();
+        console.log(data);
+        this.wallets = this.wallets.map((w) => {
+          if (w.name === walletName) {
+            w.value = data.USD;
+          }
+          return w;
+        });
+        if (this.selectedWallet?.name === walletName) {
+          this.graph.push(data.USD);
+        }
+      }, 3000);
+    },
+
     addWallet() {
       const newWallet = {
         name: this.wallet,
         value: 0,
       };
       this.wallets.push(newWallet);
-      setInterval(async () => {
-        const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${newWallet.name}&tsyms=USD&api_key=c758af6ddf70d3190475f86acba2971949ff42e5f971648e0de573f5ce540857`
-        );
-        const data = await f.json();
-        console.log(data);
-        this.wallets = this.wallets.map((w) => {
-          if (w.name === newWallet.name) {
-            w.value = data.USD;
-          }
-          return w;
-        });
-        if (this.selectedWallet?.name === newWallet.name) {
-          this.graph.push(data.USD);
-        }
-      }, 3000);
+      // add to local storage
+      localStorage.setItem("crypto-list", JSON.stringify(this.wallets));
+      this.subscribeToUpdates(newWallet.name);
 
       this.wallet = "";
+      this.filter = "";
     },
 
     deleteWallet(wallet) {
       this.wallets = this.wallets.filter((w) => w !== wallet);
+      if (this.selectedWallet === wallet) {
+        this.selectedWallet = null;
+      }
     },
 
-    normilizeGraph() {
-      const maxValue = Math.max(...this.graph);
-      const minValue = Math.min(...this.graph);
-      return this.graph.map(
-        (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
-      );
-    },
     onSelectedWallet(wallet) {
       this.selectedWallet = wallet;
+      this.graph = [];
+    },
+  },
+  watch: {
+    paginatedWallets() {
+      if (this.paginatedWallets.lenght === 0 && this.page > 1) this.page--;
+    },
+    selectedWallet() {
       this.graph = [];
     },
   },
@@ -68,7 +126,7 @@ export default {
         <div class="flex">
           <div class="max-w-xs">
             <label for="wallet" class="block text-sm font-medium text-gray-700"
-              >Тикер</label
+              >Ticker</label
             >
             <div class="mt-1 relative rounded-md shadow-md">
               <input
@@ -78,7 +136,7 @@ export default {
                 name="wallet"
                 id="wallet"
                 class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
-                placeholder="Например DOGE"
+                placeholder="GOLD, CZK, BTC...."
               />
             </div>
             <!-- <div
@@ -126,14 +184,32 @@ export default {
               d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
             ></path>
           </svg>
-          Добавить
+          Add
         </button>
       </section>
       <template v-if="wallets.length > 0 ? true : false">
+        <div class="flex space-x-5">
+          <button
+            class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            @click="page--"
+            v-if="page > 1"
+          >
+            Back
+          </button>
+          <button
+            class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            @click="page++"
+            v-if="hasNextPage"
+          >
+            Next
+          </button>
+        </div>
+        Filter:<input v-model="filter" />
+
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="wallet in wallets"
+            v-for="wallet in paginatedWallets"
             :key="wallet.name"
             @click="onSelectedWallet(wallet)"
             :class="{ 'border-4': selectedWallet === wallet }"
@@ -164,7 +240,7 @@ export default {
                   d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
                   clip-rule="evenodd"
                 ></path></svg
-              >Удалить
+              >Delete
             </button>
           </div>
         </dl>
@@ -176,7 +252,7 @@ export default {
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
-            v-for="value in normilizeGraph()"
+            v-for="value in normalizedGraph"
             :key="value"
             :style="{ height: `${value}%` }"
             class="bg-purple-800 border w-10 }"
