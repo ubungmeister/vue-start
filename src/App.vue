@@ -1,9 +1,6 @@
-<!-- eslint-disable prettier/prettier -->
-<!-- eslint-disable prettier/prettier -->
-<!-- eslint-disable prettier/prettier -->
-<!-- eslint-disable prettier/prettier -->
-
 <script>
+import { loadWallets } from "./api";
+
 export default {
   name: "App",
   data() {
@@ -24,10 +21,8 @@ export default {
     const wallets = localStorage.getItem("crypto-list");
     if (wallets) {
       this.wallets = JSON.parse(wallets);
-      this.wallets.forEach((wallet) => {
-        this.subscribeToUpdates(wallet.name);
-      });
     }
+    setInterval(this.updateWallets, 5000);
   },
 
   computed: {
@@ -63,23 +58,24 @@ export default {
   },
 
   methods: {
-    subscribeToUpdates(walletName) {
-      setInterval(async () => {
-        const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${walletName}&tsyms=USD&api_key=c758af6ddf70d3190475f86acba2971949ff42e5f971648e0de573f5ce540857`
-        );
-        const data = await f.json();
-        console.log(data);
-        this.wallets = this.wallets.map((w) => {
-          if (w.name === walletName) {
-            w.value = data.USD;
-          }
-          return w;
-        });
-        if (this.selectedWallet?.name === walletName) {
-          this.graph.push(data.USD);
+    formatValue(value) {
+      if (typeof value !== "number") {
+        return value;
+      }
+      return value > 1 ? value.toFixed(2) : value.toPrecision(2);
+    },
+    async updateWallets() {
+      if (!this.wallets.length) return;
+      const exchangeData = await loadWallets(this.wallets.map((w) => w.name));
+
+      this.wallets.forEach((w) => {
+        const exchangeValue = exchangeData[w.name.toUpperCase()];
+        if (!exchangeValue) {
+          w.value = 0;
+          return;
         }
-      }, 3000);
+        w.value = exchangeValue;
+      });
     },
 
     addWallet() {
@@ -87,10 +83,9 @@ export default {
         name: this.wallet,
         value: 0,
       };
-      this.wallets.push(newWallet);
+      this.wallets = [...this.wallets, newWallet];
       // add to local storage
       localStorage.setItem("crypto-list", JSON.stringify(this.wallets));
-      this.subscribeToUpdates(newWallet.name);
 
       this.wallet = "";
       this.filter = "";
@@ -101,6 +96,7 @@ export default {
       if (this.selectedWallet === wallet) {
         this.selectedWallet = null;
       }
+      localStorage.setItem("crypto-list", JSON.stringify(this.wallets));
     },
 
     onSelectedWallet(wallet) {
@@ -114,6 +110,9 @@ export default {
     },
     selectedWallet() {
       this.graph = [];
+    },
+    filter() {
+      this.page = 1;
     },
   },
 };
@@ -217,10 +216,13 @@ export default {
           >
             <div class="px-4 py-5 sm:p-6 text-center">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                {{ wallet.name }} - USD
+                USD - {{ wallet.name }}
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
-                {{ wallet.value }}
+                <div v-if="wallet.value !== null">
+                  {{ formatValue(wallet.value) }}
+                </div>
+                <div v-else>-</div>
               </dd>
             </div>
             <div class="w-full border-t border-gray-200"></div>
